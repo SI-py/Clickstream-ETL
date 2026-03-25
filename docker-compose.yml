@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: clickstream_postgres
+    environment:
+      POSTGRES_DB: clickstream
+      POSTGRES_USER: clickstream_user
+      POSTGRES_PASSWORD: clickstream_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clickstream_user -d clickstream"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: clickstream_clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: clickstream
+      CLICKHOUSE_USER: clickstream_user
+      CLICKHOUSE_PASSWORD: clickstream_pass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  spark:
+    build: .
+    image: clickstream-etl:latest
+    container_name: clickstream_spark
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      PYTHONPATH: /app
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: clickstream
+      POSTGRES_USER: clickstream_user
+      POSTGRES_PASSWORD: clickstream_pass
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_DB: clickstream
+      CLICKHOUSE_USER: clickstream_user
+      CLICKHOUSE_PASSWORD: clickstream_pass
+    command: sleep infinity
+
+volumes:
+  postgres_data:
+  clickhouse_data:

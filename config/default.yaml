@@ -1,0 +1,23 @@
+postgres:
+  host: localhost
+  port: 5432
+  database: clickstream
+  source_table: public.events
+
+clickhouse:
+  host: localhost
+  port: 8123
+  database: clickstream
+  target_table: clickstream.silver_events
+
+spark:
+  app_name: clickstream-etl
+  master: local[*]
+
+hwm:
+  store_path: data/hwm_store
+  name: clickstream_events_hwm
+  expression: event_time
+
+etl:
+  max_events_per_session: 5000

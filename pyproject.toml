@@ -1,0 +1,22 @@
+[project]
+name = "clickstream-etl"
+version = "0.1.0"
+description = "Clickstream ETL: Postgres → Spark/onETL → ClickHouse"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "clickhouse-connect>=0.14.1",
+    "fastapi>=0.135.2",
+    "onetl>=0.15.0",
+    "pandas>=3.0.1",
+    "psycopg2-binary>=2.9.11",
+    "pyspark==3.5.1",
+    "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.42.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.7",
+]
