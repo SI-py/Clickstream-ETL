@@ -49,12 +49,16 @@ def _parse_row(row):
     )
 
 
-def load_csv(file_path, limit, offset, chunk_size):
-    print(f"Reading CSV from {file_path} (offset={offset}, limit={limit})...")
+def load_csv(file_path, limit, offset, chunk_size, *, append):
+    mode = "append to existing rows" if append else "replace (truncate first)"
+    print(f"Reading CSV from {file_path} (offset={offset}, limit={limit}, mode={mode})...")
 
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            if not append:
+                cur.execute("TRUNCATE TABLE events")
+                print("Truncated table events.")
             if offset > 0 and limit is not None:
                 skip = range(1, offset + 1)
                 reader = pd.read_csv(
@@ -109,13 +113,18 @@ def main():
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--chunk-size", type=int, default=50_000)
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Do not truncate events; insert rows for incremental source testing.",
+    )
 
     args = parser.parse_args()
 
     create_events_table()
     create_events_indexes()
 
-    load_csv(args.file, args.limit, args.offset, args.chunk_size)
+    load_csv(args.file, args.limit, args.offset, args.chunk_size, append=args.append)
 
 
 if __name__ == "__main__":
