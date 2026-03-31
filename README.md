@@ -7,6 +7,25 @@
 - назначение: ClickHouse (`clickstream.silver_events`)
 - режимы: full snapshot и incremental load через HWM
 
+## Цель проекта
+
+Построить воспроизводимый ETL-пайплайн, который:
+
+- загружает исходные clickstream-данные в PostgreSQL;
+- обрабатывает данные через Spark + onETL;
+- пишет результат в ClickHouse;
+- поддерживает full snapshot и incremental загрузку по HWM (`event_time`);
+- предоставляет API для запуска пайплайна и контроля статуса.
+
+## Архитектура пайплайна
+
+```text
+Kaggle CSV -> scripts/load_csv.py -> PostgreSQL.public.events
+            -> app.etl.pipeline (Spark + onETL + transforms)
+            -> ClickHouse.clickstream.silver_events
+            -> HWM store (data/hwm_store/*.yml)
+```
+
 ## Технологии
 
 - Python 3.11
@@ -105,11 +124,41 @@ Incremental:
 docker compose exec spark python -m app.etl.incremental_load
 ```
 
+CLI через корневой entrypoint:
+
+```bash
+docker compose exec spark python main.py full
+docker compose exec spark python main.py incremental
+docker compose exec spark python main.py api --host 0.0.0.0 --port 8000
+```
+
 ### Логика incremental
 
 - HWM колонка: `event_time`
 - читаются только строки `event_time > last_hwm`
 - HWM обновляется после успешной записи
+
+## Logging setup
+
+Логирование настроено через:
+
+```python
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+```
+
+Ключевые шаги, которые логируются в ETL:
+
+- старт ETL и режим запуска;
+- параметры источника и назначения;
+- старт чтения из PostgreSQL;
+- количество прочитанных строк;
+- количество строк после трансформаций;
+- запись в ClickHouse;
+- обновление HWM (через `IncrementalStrategy`);
+- длительность выполнения.
 
 ## Трансформации
 
@@ -169,3 +218,39 @@ docker compose exec spark uvicorn app.web.main:app --host 0.0.0.0 --port 8000
 - `GET /etl/history`
 
 Swagger: `/docs`
+
+### Примеры curl
+
+```bash
+curl -X POST http://localhost:8000/etl/full
+```
+
+```bash
+curl -X POST http://localhost:8000/etl/incremental
+```
+
+```bash
+curl http://localhost:8000/etl/status/<job_id>
+```
+
+```bash
+curl http://localhost:8000/etl/history
+```
+
+## Проверка результата в PostgreSQL и ClickHouse
+
+Проверка через готовый скрипт:
+
+```bash
+docker compose exec spark python scripts/check_etl_counts.py
+```
+
+Проверка напрямую SQL:
+
+```bash
+docker compose exec postgres psql -U clickstream_user -d clickstream -c "SELECT COUNT(*) FROM public.events;"
+```
+
+```bash
+docker compose exec clickhouse clickhouse-client --query "SELECT count() FROM clickstream.silver_events;"
+```

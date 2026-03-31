@@ -13,6 +13,11 @@ from app.config.settings import get_config
 from app.db.clickhouse import create_database, create_silver_events_table
 from app.etl.transforms import FINAL_COLUMN_ORDER, apply_all
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 log = logging.getLogger(__name__)
 
 EVENT_COLUMNS = [
@@ -67,6 +72,7 @@ def _clear_hwm(cfg):
 
 def _run_etl(cfg, *, write_mode):
     t0 = time.perf_counter()
+    log.info("ETL started (mode=%s)", write_mode)
     spark = _spark(cfg)
     spark.sparkContext.setLogLevel("WARN")
 
@@ -77,6 +83,15 @@ def _run_etl(cfg, *, write_mode):
     ch = cfg["clickhouse"]
     hwm = cfg["hwm"]
     max_sess = int(cfg.get("etl", {}).get("max_events_per_session", 5000))
+    log.info(
+        "Connections config loaded (postgres=%s:%s, clickhouse=%s:%s, source=%s, target=%s)",
+        pg["host"],
+        pg["port"],
+        ch["host"],
+        ch["port"],
+        pg["source_table"],
+        ch["target_table"],
+    )
 
     postgres = Postgres(
         host=pg["host"],
@@ -121,6 +136,7 @@ def _run_etl(cfg, *, write_mode):
     try:
         with YAMLHWMStore(path=Path(hwm["store_path"]).resolve()):
             with IncrementalStrategy():
+                log.info("Reading source data via DBReader")
                 df = reader.run()
                 if not df.take(1):
                     log.warning("No rows in this batch (nothing to load)")
@@ -133,20 +149,25 @@ def _run_etl(cfg, *, write_mode):
                     }
 
                 rows_raw = df.count()
+                log.info("Source rows read: %s", rows_raw)
                 transformed = apply_all(df, max_events_per_session=max_sess)
                 final_df = transformed.select(*FINAL_COLUMN_ORDER)
                 rows_final = final_df.count()
                 log.info(
-                    "Transform complete: rows=%s after filters=%s (write_mode=%s)",
+                    "Transform complete: rows_before=%s rows_after=%s (write_mode=%s)",
                     rows_raw,
                     rows_final,
                     write_mode,
                 )
+                log.info("Writing transformed batch to ClickHouse")
                 writer.run(final_df)
+                log.info("Write complete: rows_written=%s", rows_final)
+                log.info("HWM will be updated by IncrementalStrategy on successful context exit")
     finally:
         spark.stop()
 
     elapsed = time.perf_counter() - t0
+    log.info("ETL finished in %.3f seconds", elapsed)
     return {
         "rows_read": rows_raw,
         "rows_written": rows_final,
